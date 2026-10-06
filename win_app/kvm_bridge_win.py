@@ -16,6 +16,7 @@ from PySide6.QtGui import QColor, QDesktopServices, QIcon, QKeySequence, QPainte
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -81,12 +82,12 @@ HOME_PAGE = "https://kalkmancode.co.uk/beamer"
 HOME_PAGE_TEXT = "Beamer's website"
 
 IDLE_CODE = "––– –––"
-PAIR_HINT = "Type this code into Beamer on the Mac."
+PAIR_HINT = "Type this code into Beamer on the other PC."
 
 STATUS_TITLES = {
     ServerState.STOPPED: "Receiver stopped",
-    ServerState.WAITING: "Waiting for your Mac",
-    ServerState.CONNECTED: "Mac connected",
+    ServerState.WAITING: "Waiting for the other PC",
+    ServerState.CONNECTED: "Other PC connected",
     ServerState.ERROR: "Receiver needs attention",
 }
 
@@ -115,9 +116,9 @@ CORNER_CHOICES = (
 TRIGGER_STYLE_CHOICES = (("double_tap", "Double-tap"), ("hold", "Hold"))
 MODIFIER_STYLE_CHOICES = (("semantic", "Same shortcuts"), ("positional", "Same positions"))
 MODIFIER_NOTES = {
-    "semantic": "Ctrl arrives on the Mac as Command and the Windows key as Control, so Ctrl+C "
+    "semantic": "Ctrl arrives on the other PC as Command and the Windows key as Control, so Ctrl+C "
     "copies there too.",
-    "positional": "Each key arrives as the Mac key in the same place: Ctrl as Control, the Windows "
+    "positional": "Each key arrives as the other PC key in the same place: Ctrl as Control, the Windows "
     "key as Command.",
 }
 FULL_SCREEN_CHECK_MS = 1000
@@ -152,7 +153,7 @@ def configure_logging() -> Optional[Path]:
             handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(threadName)s %(message)s"))
             root_logger = logging.getLogger()
             # BEAMER_DEBUG=1 logs every injected key by name, which is the only
-            # way to tell a key the Mac never sent from one Windows swallowed.
+            # way to tell a key the other PC never sent from one Windows swallowed.
             root_logger.setLevel(logging.DEBUG if os.environ.get("BEAMER_DEBUG") else logging.INFO)
             root_logger.addHandler(handler)
             LOG_PATH = log_path
@@ -195,7 +196,7 @@ class StatusBridge(QObject):
     arrived = Signal(str, str, float, float)
     firewall = Signal(object)
     paired = Signal(str, str, str)
-    # The other direction: this PC's own input going to the Mac.
+    # The other direction: this PC's own input going to the other PC.
     sending = Signal(bool, str)
     redirecting = Signal(bool)
     focus = Signal(str)
@@ -239,6 +240,7 @@ class WindowsApplication(QWidget):
         # Announces this PC from launch, configured or not: pairing is how a fresh install
         # gets its token, so it cannot wait for the receiver to be listening.
         self.announcer = Announcer(self._announced_port, self.bridge.paired.emit, logger=LOGGER)
+        self.discovery = pairing.Discovery(logger=LOGGER)
         self._code_shown = False
         self._code_addresses: list = []
         self._firewall_advice: Optional[firewall_win.Advice] = None
@@ -254,16 +256,18 @@ class WindowsApplication(QWidget):
         self.server = ReceiverServer(
             self._set_status,
             pressure_callback=lambda edge, pressure, crossed, part=None: self.bridge.pressure.emit(edge, pressure, crossed, part),
-            # The Mac's notch crossing lands on this PC's bottom edge, and that is the only
-            # arrival an effect draws differently. No edge is the Mac's shortcut or menu.
+            # No edge is the other PC's shortcut or menu.
             arrival_callback=lambda edge, x, y: self.bridge.arrived.emit(
-                "switch" if edge is None else "notch" if edge == "bottom" else "edge", edge or "", float(x), float(y)
+                "switch" if edge is None else "edge", edge or "", float(x), float(y)
             ),
             focus_callback=self.bridge.focus.emit,
             peer_callback=self.bridge.learned.emit,
             arrangement_callback=self.bridge.arrangement.emit,
+            self_target="peer",
+            peer_target="windows",
+            peer_name=default_config().paired_with or "the other PC",
         )
-        # The second link, outwards: this PC's keyboard and mouse on the Mac.
+        # The second link, outwards: this PC's keyboard and mouse on the other PC.
         self.sender = MacSender(
             status_callback=self.bridge.sending.emit,
             redirect_callback=self.bridge.redirecting.emit,
@@ -274,7 +278,7 @@ class WindowsApplication(QWidget):
             ),
         )
         self.sender.send_peer_home = self.server.send_home
-        # Pause crossing and the full-screen hold are about this screen: the Mac's pointer does
+        # Pause crossing and the full-screen hold are about this screen: the other PC's pointer does
         # not go home through a held edge either.
         self.server.edges_held = lambda: self.sender.edges_held
         self.server.return_model = self._return_model
@@ -284,7 +288,7 @@ class WindowsApplication(QWidget):
         self.bridge.mac_learned.connect(self._on_mac_learned)
         self.hooks = capture_win.Hooks(self._on_hook_key, self.sender.on_mouse, self.sender.on_motion)
         self._trigger = capture_win.Trigger()
-        self._sending_detail = "Not connected to the Mac"
+        self._sending_detail = "Not connected to the other PC"
         self.update_checker = updates.Checker(
             VERSION, lambda: self._config is None or self._config.check_updates, self.bridge.update.emit, logger=LOGGER
         )
@@ -297,7 +301,7 @@ class WindowsApplication(QWidget):
         except ConfigError as exc:
             LOGGER.info("Configuration is not ready: %s", exc)
             self._status = ServerState.ERROR
-            self._status_detail = "Not paired yet: press Pair a Mac on Overview"
+            self._status_detail = "Not paired yet: press Pair a PC on Overview"
 
         # Before any widget is built: every control takes its colours from the palette in use.
         appearance = self._config.appearance if self._config is not None else "system"
@@ -498,7 +502,7 @@ class WindowsApplication(QWidget):
         self.location_readout = widgets.label("", "readout", wrap=True)
         where_row.addWidget(self.location_readout, 1)
         module.body.addLayout(where_row)
-        # Shown only while there is a figure: the trip is measured while input is on the Mac.
+        # Shown only while there is a figure: the trip is measured while input is on the other PC.
         self.round_trip_row = QWidget()
         self.round_trip_row.setProperty("vernier", "plain")
         trip_row = QHBoxLayout(self.round_trip_row)
@@ -512,16 +516,16 @@ class WindowsApplication(QWidget):
         return module
 
     def _input_module(self) -> QWidget:
-        """The Mac's two everyday buttons: send input across without the shortcut or an edge, and
+        """The other PC's two everyday buttons: send input across without the shortcut or an edge, and
         hold the edges for a while."""
         module = widgets.Module("Keyboard and mouse")
-        self.redirect_button = QPushButton("Send input to your Mac")
+        self.redirect_button = QPushButton("Send input to the other PC")
         self.redirect_button.setProperty("vernier", "primary")
         self.redirect_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.redirect_button.clicked.connect(self.toggle_redirect)
         module.body.addWidget(self.redirect_button)
         # Why the button above is dimmed, while it is.
-        self.redirect_note = widgets.label("Switch on This PC drives your Mac, below, to send input from here.",
+        self.redirect_note = widgets.label("Switch on This PC drives the other PC, below, to send input from here.",
                                            "note", wrap=True)
         self.redirect_note.setVisible(False)
         module.body.addWidget(self.redirect_note)
@@ -554,7 +558,7 @@ class WindowsApplication(QWidget):
         return pages_win.crossing_state_sentence(*self._crossing_state_args())
 
     def _check_full_screen(self) -> None:
-        """The Mac's rule: a full-screen app in front holds the edges, the shortcut still works.
+        """The other PC's rule: a full-screen app in front holds the edges, the shortcut still works.
         A failure stops the check for the run rather than logging once a second."""
         try:
             self.sender.full_screen_app = desktop_win.full_screen_app()
@@ -579,12 +583,12 @@ class WindowsApplication(QWidget):
     def _directions_module(self, current: Config) -> QWidget:
         module = widgets.Module("Directions")
         # The tray's words, so the two never disagree.
-        self.allow_switch = widgets.Switch("Your Mac drives this PC")
+        self.allow_switch = widgets.Switch("The other PC drives this PC")
         self.allow_switch.setFont(theme.font(theme.TYPE["body"]))
         self.allow_switch.setChecked(current.allow_mac_to_drive)
         self.allow_switch.toggled.connect(self._set_allow_drive)
         module.body.addWidget(self.allow_switch)
-        self.send_switch = widgets.Switch("This PC drives your Mac")
+        self.send_switch = widgets.Switch("This PC drives the other PC")
         self.send_switch.setFont(theme.font(theme.TYPE["body"]))
         self.send_switch.setChecked(current.send_to_mac)
         self.send_switch.toggled.connect(self._toggle_sending)
@@ -711,14 +715,14 @@ class WindowsApplication(QWidget):
         self.edge_choice = widgets.Choice(
             EDGE_CHOICES, columns=4, current=current.mac_return_edge, on_change=self._set_arrangement
         )
-        self.edge_choice.set_names("Where your Mac is")
+        self.edge_choice.set_names("Where the other PC is")
         self.edge_unlearned = widgets.label(pages_win.NOT_LEARNED_EDGE, "note", wrap=True)
         self.edge_unlearned.setVisible(not current.mac_return_edge)
         self.crossing_rows = {
             "edge": self._row(
-                widgets.label("Where your Mac is", "key"),
+                widgets.label("Where the other PC is", "key"),
                 widgets.label(
-                    "One border, walked both ways, so changing it here moves it on your Mac too.",
+                    "One border, walked both ways, so changing it here moves it on the other PC too.",
                     "note",
                     wrap=True,
                 ),
@@ -759,9 +763,9 @@ class WindowsApplication(QWidget):
 
         now_row = QHBoxLayout()
         now_row.setSpacing(6)
-        # The Mac's half of the border -- the edge and push it asks for when it is the one
-        # sending. Hidden until the Mac has said, rather than reading "not set yet".
-        now_row.addWidget(widgets.label("Coming back from your Mac:", "note"))
+        # The other PC's half of the border -- the edge and push it asks for when it is the one
+        # sending. Hidden until the other PC has said, rather than reading "not set yet".
+        now_row.addWidget(widgets.label("Coming back from the other PC:", "note"))
         self.return_readout = widgets.label("", "readout", wrap=True)
         now_row.addWidget(self.return_readout, 1)
         self.return_row = self._row(now_row)
@@ -825,7 +829,7 @@ class WindowsApplication(QWidget):
         self.resistance_strip.set_edge(edge)
 
     def _set_arrangement(self, pc_edge: str) -> None:
-        """The edge of THIS PC that leads to the Mac -- one border, walked either way. Not an
+        """The edge of THIS PC that leads to the other PC -- one border, walked either way. Not an
         ordinary save: both machines have to agree on it, so this end's change is timestamped
         and sent over whichever link is up."""
         if self._config is None or pc_edge == self._config.mac_return_edge:
@@ -856,16 +860,16 @@ class WindowsApplication(QWidget):
         self._reflect_ways()
 
     def _on_arrangement(self, mac_edge: str, set_at: int) -> None:
-        """The Mac changed the arrangement, over either link. `mac_edge` is always the edge of
+        """The other PC changed the arrangement, over either link. `mac_edge` is always the edge of
         the MAC that leads here; an arrival older than what this end already holds is ignored."""
         if self._config is None:
             return
         pc_edge = return_edge.OPPOSITE.get(mac_edge)
         if pc_edge is None or pc_edge == self._config.mac_return_edge:
-            # One change on the Mac reaches this PC over both links, so the second copy finds it applied.
+            # One change on the other PC reaches this PC over both links, so the second copy finds it applied.
             return
         if self._config.arrangement_set_at and not protocol.arrangement_wins(set_at, self._config.arrangement_set_at):
-            LOGGER.info("Ignoring an arrangement from the Mac that is no newer than this PC's (%s vs %s)", set_at, self._config.arrangement_set_at)
+            LOGGER.info("Ignoring an arrangement from the other PC that is no newer than this PC's (%s vs %s)", set_at, self._config.arrangement_set_at)
             return
         self._config.mac_return_edge = pc_edge
         self._config.arrangement_set_at = int(set_at)
@@ -923,9 +927,9 @@ class WindowsApplication(QWidget):
         layout.addWidget(self._speed_module(current))
 
     def _speed_module(self, current: Config) -> QWidget:
-        """How the Mac's pointer feels on this PC: the Mac sends what its own acceleration made of
+        """How the other PC's pointer feels on this PC: the other PC sends what its own acceleration made of
         the hand's movement, and this PC's settings decide the rest."""
-        module = widgets.Module("The Mac's pointer here")
+        module = widgets.Module("The other PC's pointer here")
         self.speed_sliders = {}
         self.speed_readouts = {}
         for key, name, value in (("pointer_speed", "Pointer speed", current.pointer_speed),
@@ -942,9 +946,9 @@ class WindowsApplication(QWidget):
             module.body.addLayout(row)
             self.speed_sliders[key], self.speed_readouts[key] = slider, readout
         module.body.addWidget(widgets.label(
-            "For the Mac's trackpad or mouse while it drives this PC.", "note", wrap=True
+            "For the other PC's trackpad or mouse while it drives this PC.", "note", wrap=True
         ))
-        self.reverse_scroll_switch = widgets.Switch("Reverse the Mac's scrolling")
+        self.reverse_scroll_switch = widgets.Switch("Reverse the other PC's scrolling")
         self.reverse_scroll_switch.setFont(theme.font(theme.TYPE["body"]))
         self.reverse_scroll_switch.setChecked(current.reverse_scroll)
         self.reverse_scroll_switch.toggled.connect(self._reverse_scroll_changed)
@@ -1022,10 +1026,10 @@ class WindowsApplication(QWidget):
             row_layout.addWidget(remove)
             self.ignored_list.addWidget(row)
         text = refused or (
-            "These keep working on this PC while its input is on your Mac: a mouse's back button for "
+            "These keep working on this PC while its input is on the other PC: a mouse's back button for "
             "this PC's browser, say, or a volume key for its speakers."
             if entries
-            else "Nothing yet. Every key and button goes to your Mac while it has input. Add one to keep "
+            else "Nothing yet. Every key and button goes to the other PC while it has input. Add one to keep "
             "it here: a mouse's back button for this PC's browser, say, or a volume key for its speakers."
         )
         self.ignored_note.setText(text)
@@ -1064,7 +1068,7 @@ class WindowsApplication(QWidget):
         module = widgets.Module("Shortcut")
         module.body.addWidget(
             widgets.label(
-                "Use this key to send input to your Mac, and to bring it back.", "note", wrap=True
+                "Use this key to send input to the other PC, and to bring it back.", "note", wrap=True
             )
         )
         self.trigger_recorder = widgets.InputRecorder(
@@ -1093,7 +1097,7 @@ class WindowsApplication(QWidget):
         head.addStretch(1)
         self.double_tap_readout = widgets.label(f"{current.double_tap_ms} ms", "readout")
         head.addWidget(self.double_tap_readout)
-        # The Mac's range: the store takes 50 to 2000 ms, but only about 150 to 600 is useful.
+        # The other PC's range: the store takes 50 to 2000 ms, but only about 150 to 600 is useful.
         self.double_tap_slider = widgets.Ruler("Time between taps", 1000, minimum=50)
         self.double_tap_slider.setValue(current.double_tap_ms)
         self.double_tap_slider.valueChanged.connect(self._double_tap_changed)
@@ -1104,7 +1108,7 @@ class WindowsApplication(QWidget):
         return module
 
     def _record_trigger(self, kind: str, value) -> None:
-        """Any key that types nothing, as on the Mac: a modifier, a function key, a navigation
+        """Any key that types nothing, as on the other PC: a modifier, a function key, a navigation
         key. A key that types a character would stop typing it, so it is refused, and said so."""
         name = None
         if kind == "key" and value not in UNRECORDABLE_TRIGGER_VKS:
@@ -1140,7 +1144,7 @@ class WindowsApplication(QWidget):
 
     def _update_style_hint(self, style: str) -> None:
         text = (
-            "Input is on the Mac for as long as the key is held."
+            "Input is on the other PC for as long as the key is held."
             if style == "hold"
             else "Tap twice to switch; tap twice again to come back."
         )
@@ -1193,8 +1197,8 @@ class WindowsApplication(QWidget):
         module.body.addWidget(self.glow_toggle)
         module.body.addWidget(
             widgets.label(
-                "Lights this PC as you push toward your Mac. Switched off, crossing still works. "
-                "Your Mac sets how its own edge and notch look.",
+                "Lights this PC as you push toward the other PC. Switched off, crossing still works. "
+                "Your other PC sets how its own edge and notch look.",
                 "note",
                 wrap=True,
             )
@@ -1418,7 +1422,7 @@ class WindowsApplication(QWidget):
             return False
         try:
             save_config(self.config_path, self._config)
-            # A change on the Crossing page reaches the Mac's pointer while it is here, not at its
+            # A change on the Crossing page reaches the other PC's pointer while it is here, not at its
             # next crossing: the way home is built from these settings when it arrives.
             self.server.rearm_return()
             return True
@@ -1429,12 +1433,12 @@ class WindowsApplication(QWidget):
     # -- Pairing --------------------------------------------------------------------------
 
     def _pairing_block(self, layout, current: Config) -> None:
-        module = widgets.Module("Your Mac")
+        module = widgets.Module("Other PC")
         self.mac_module = module
         self.paired_heading = widgets.label("", "tile-name", wrap=True)
         module.body.addWidget(self.paired_heading)
         self.pair_intro = widgets.label(
-            "Press Pair a Mac, then on your Mac choose this PC and type the six-digit code shown here. "
+            "Press Pair a PC, then on the other PC choose this PC and type the six-digit code shown here. "
             "You only do this once.",
             "note",
             wrap=True,
@@ -1449,6 +1453,42 @@ class WindowsApplication(QWidget):
         self.pair_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.pair_button.clicked.connect(self._toggle_pairing)
         module.body.addWidget(self.pair_button, 0, Qt.AlignmentFlag.AlignLeft)
+        
+        self.find_button = QPushButton("Find a PC to pair with")
+        self.find_button.setProperty("vernier", "primary")
+        self.find_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.find_button.clicked.connect(self._start_discovery)
+        module.body.addWidget(self.find_button, 0, Qt.AlignmentFlag.AlignLeft)
+
+        self.discovery_block = QWidget()
+        discovery_layout = QVBoxLayout(self.discovery_block)
+        discovery_layout.setContentsMargins(0, 8, 0, 0)
+        
+        self.pc_list = QComboBox()
+        self.pc_list.currentIndexChanged.connect(self._on_pc_selected)
+        discovery_layout.addWidget(QLabel("Select discovered PC:"))
+        discovery_layout.addWidget(self.pc_list)
+        
+        self.manual_address = QLineEdit()
+        self.manual_address.setPlaceholderText("Or enter PC address manually")
+        self.manual_address.textChanged.connect(self._on_manual_address)
+        discovery_layout.addWidget(self.manual_address)
+        
+        self.client_code = QLineEdit()
+        self.client_code.setPlaceholderText("6-digit code")
+        discovery_layout.addWidget(self.client_code)
+        
+        self.connect_button = QPushButton("Connect")
+        self.connect_button.clicked.connect(self._connect_to_pc)
+        self.connect_button.setProperty("vernier", "primary")
+        discovery_layout.addWidget(self.connect_button)
+        
+        self.discovery_block.setVisible(False)
+        module.body.addWidget(self.discovery_block)
+        
+        self.discovery_timer = QTimer(self)
+        self.discovery_timer.timeout.connect(self._poll_discovery)
+
         layout.addWidget(module)
 
         self.code_module = widgets.Module("Pairing code")
@@ -1473,7 +1513,7 @@ class WindowsApplication(QWidget):
         self.drain = widgets.Drain()
         self.code_module.body.addWidget(self.drain)
         self.code_module.body.addWidget(widgets.label(PAIR_HINT, "note", wrap=True))
-        # Pairing by address, for a network whose broadcasts never reach the Mac.
+        # Pairing by address, for a network whose broadcasts never reach the other PC.
         self.address_note = widgets.label("", "note", wrap=True)
         self.address_note.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.code_module.body.addWidget(self.address_note)
@@ -1481,11 +1521,68 @@ class WindowsApplication(QWidget):
         layout.addWidget(self.code_module)
         self._show_paired(current.paired_with)
 
+    
+    def _start_discovery(self) -> None:
+        self.discovery_block.setVisible(True)
+        self.find_button.setVisible(False)
+        self.discovery.start()
+        self.discovery_timer.start(1000)
+
+    def _poll_discovery(self) -> None:
+        pcs = self.discovery.pcs()
+        current_data = [self.pc_list.itemData(i) for i in range(self.pc_list.count())]
+        for pc in pcs:
+            if pc not in current_data:
+                self.pc_list.addItem(f"{pc.get('name', 'Unknown PC')} ({pc.get('address')})", pc)
+
+    def _on_pc_selected(self, index: int) -> None:
+        if index >= 0:
+            pc = self.pc_list.itemData(index)
+            if pc:
+                self.manual_address.setText(pc.get("address", ""))
+
+    def _on_manual_address(self, text: str) -> None:
+        if self.pc_list.currentIndex() >= 0:
+            pc = self.pc_list.itemData(self.pc_list.currentIndex())
+            if pc and text != pc.get("address"):
+                self.pc_list.setCurrentIndex(-1)
+
+    def _connect_to_pc(self) -> None:
+        code = self.client_code.text().strip()
+        if not code:
+            return
+            
+        address = self.manual_address.text().strip()
+        if not address:
+            return
+            
+        # find matching pc in pcs if possible
+        pc = None
+        for p in self.discovery.pcs():
+            if p.get("address") == address:
+                pc = p
+                break
+                
+        if not pc:
+            # Create a fake pc dict for manual connection
+            pc = {"address": address, "reply_port": pairing.PAIRING_PORT, "pairing": pairing.PAIRING_VERSION, "pair_id": "manual"}
+            self.discovery.find(address)
+            
+        def _do_pair():
+            try:
+                token, name = self.discovery.pair(pc, code, pairing.machine_name())
+                self.bridge.paired.emit(token, name, address)
+            except Exception as e:
+                LOGGER.error(f"Pairing failed: {e}")
+                
+        import threading
+        threading.Thread(target=_do_pair, daemon=True).start()
+
     def _show_paired(self, name: str) -> None:
         self.paired_heading.setText(f"Paired with {name}" if name else "Not paired yet")
         self.pair_intro.setVisible(not name)
         if self.announcer.code is None:
-            self.pair_button.setText("Pair a different Mac" if name else "Pair a Mac")
+            self.pair_button.setText("Pair a different PC" if name else "Pair a PC")
         self._place_pairing(bool(name))
 
     def _place_pairing(self, paired: bool) -> None:
@@ -1512,7 +1609,7 @@ class WindowsApplication(QWidget):
         self._refresh_pairing()
 
     def _pairing_addresses(self) -> list:
-        """The one address worth typing on the Mac: this PC's on the network that reaches the Mac
+        """The one address worth typing on the other PC: this PC's on the network that reaches the other PC
         it last knew, else on the default route. Every adapter's address, virtual switches and
         the hotspot included, only when neither can be found."""
         mac = self._config.mac_host if self._config is not None else ""
@@ -1547,7 +1644,7 @@ class WindowsApplication(QWidget):
                 motion.set_shown(self.code_module, True)
             # Every tick, so switching Hide addresses while a code is up applies at once.
             note = self._shown(
-                f"Not listed on the Mac? Type this PC's address there: {', '.join(self._code_addresses)}"
+                f"Not listed on the other PC? Type this PC's address there: {', '.join(self._code_addresses)}"
             ) if self._code_addresses else ""
             if self.address_note.text() != note:
                 self.address_note.setText(note)
@@ -1564,7 +1661,7 @@ class WindowsApplication(QWidget):
         if outcome == "refused":
             self._say_pairing("A wrong code was entered, so that code is cancelled. Pair again for a fresh one.", "note-fault")
         elif outcome == "version":
-            self._say_pairing("The Mac runs a different version of Beamer. Update Beamer on both machines, then pair again.", "note-fault")
+            self._say_pairing("The other PC runs a different version of Beamer. Update Beamer on both machines, then pair again.", "note-fault")
         elif outcome == "expired":
             self._say_pairing("The code expired. Pair again for a fresh one.", "note-amber")
         elif outcome is None:
@@ -1580,7 +1677,7 @@ class WindowsApplication(QWidget):
         current = self._config or default_config()
         host = self.host_entry.text().strip() or self._host
         if not host:
-            # A fresh install knows no address of its own; the one facing the Mac is the one
+            # A fresh install knows no address of its own; the one facing the other PC is the one
             # to show.
             try:
                 host = local_address_towards(mac_address)
@@ -1604,7 +1701,7 @@ class WindowsApplication(QWidget):
         self.host_entry.setText(candidate.host)
         self.token_entry.setText(token)
         self._refresh_pairing()
-        who = mac_name or "your Mac"
+        who = pc_name or "the other PC"
         self._show_paired(candidate.paired_with)
         self._say_pairing("Paired. The receiver restarted with the new token.", "note-live")
         LOGGER.info("Paired with %s", who)
@@ -1640,7 +1737,7 @@ class WindowsApplication(QWidget):
             fields.addWidget(key, row, 0)
             fields.addWidget(entry, row, 1, 1, span)
 
-        # The address the Mac connects to. Pairing fills it in; a hand set-up copies it from here.
+        # The address the other PC connects to. Pairing fills it in; a hand set-up copies it from here.
         self.host_entry = QLineEdit(self._host)
         field(0, "This PC's address", self.host_entry)
         self.port_entry = QLineEdit(str(current.port))
@@ -1661,9 +1758,9 @@ class WindowsApplication(QWidget):
         module.body.addLayout(fields)
         mac_row = QHBoxLayout()
         mac_row.setSpacing(6)
-        mac_row.addWidget(widgets.label("Your Mac's IP address:", "note"))
+        mac_row.addWidget(widgets.label("Other PC's IP address:", "note"))
         self.mac_host_readout = widgets.label(self._shown(current.mac_host) or "Not learned yet", "readout", wrap=True)
-        self.mac_host_readout.setAccessibleName("Your Mac's IP address")
+        self.mac_host_readout.setAccessibleName("Other PC's IP address")
         mac_row.addWidget(self.mac_host_readout, 1)
         module.body.addLayout(mac_row)
         self._show_host_entry()
@@ -1675,6 +1772,42 @@ class WindowsApplication(QWidget):
         self.save_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.save_button.clicked.connect(self.save)
         module.body.addWidget(self.save_button, 0, Qt.AlignmentFlag.AlignLeft)
+        
+        self.find_button = QPushButton("Find a PC to pair with")
+        self.find_button.setProperty("vernier", "primary")
+        self.find_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.find_button.clicked.connect(self._start_discovery)
+        module.body.addWidget(self.find_button, 0, Qt.AlignmentFlag.AlignLeft)
+
+        self.discovery_block = QWidget()
+        discovery_layout = QVBoxLayout(self.discovery_block)
+        discovery_layout.setContentsMargins(0, 8, 0, 0)
+        
+        self.pc_list = QComboBox()
+        self.pc_list.currentIndexChanged.connect(self._on_pc_selected)
+        discovery_layout.addWidget(QLabel("Select discovered PC:"))
+        discovery_layout.addWidget(self.pc_list)
+        
+        self.manual_address = QLineEdit()
+        self.manual_address.setPlaceholderText("Or enter PC address manually")
+        self.manual_address.textChanged.connect(self._on_manual_address)
+        discovery_layout.addWidget(self.manual_address)
+        
+        self.client_code = QLineEdit()
+        self.client_code.setPlaceholderText("6-digit code")
+        discovery_layout.addWidget(self.client_code)
+        
+        self.connect_button = QPushButton("Connect")
+        self.connect_button.clicked.connect(self._connect_to_pc)
+        self.connect_button.setProperty("vernier", "primary")
+        discovery_layout.addWidget(self.connect_button)
+        
+        self.discovery_block.setVisible(False)
+        module.body.addWidget(self.discovery_block)
+        
+        self.discovery_timer = QTimer(self)
+        self.discovery_timer.timeout.connect(self._poll_discovery)
+
         layout.addWidget(module)
 
     def _shown(self, text: str) -> str:
@@ -1758,6 +1891,42 @@ class WindowsApplication(QWidget):
         self.firewall_button.setEnabled(False)
         self.firewall_button.clicked.connect(self._firewall_action)
         module.body.addWidget(self.firewall_button, 0, Qt.AlignmentFlag.AlignLeft)
+        
+        self.find_button = QPushButton("Find a PC to pair with")
+        self.find_button.setProperty("vernier", "primary")
+        self.find_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.find_button.clicked.connect(self._start_discovery)
+        module.body.addWidget(self.find_button, 0, Qt.AlignmentFlag.AlignLeft)
+
+        self.discovery_block = QWidget()
+        discovery_layout = QVBoxLayout(self.discovery_block)
+        discovery_layout.setContentsMargins(0, 8, 0, 0)
+        
+        self.pc_list = QComboBox()
+        self.pc_list.currentIndexChanged.connect(self._on_pc_selected)
+        discovery_layout.addWidget(QLabel("Select discovered PC:"))
+        discovery_layout.addWidget(self.pc_list)
+        
+        self.manual_address = QLineEdit()
+        self.manual_address.setPlaceholderText("Or enter PC address manually")
+        self.manual_address.textChanged.connect(self._on_manual_address)
+        discovery_layout.addWidget(self.manual_address)
+        
+        self.client_code = QLineEdit()
+        self.client_code.setPlaceholderText("6-digit code")
+        discovery_layout.addWidget(self.client_code)
+        
+        self.connect_button = QPushButton("Connect")
+        self.connect_button.clicked.connect(self._connect_to_pc)
+        self.connect_button.setProperty("vernier", "primary")
+        discovery_layout.addWidget(self.connect_button)
+        
+        self.discovery_block.setVisible(False)
+        module.body.addWidget(self.discovery_block)
+        
+        self.discovery_timer = QTimer(self)
+        self.discovery_timer.timeout.connect(self._poll_discovery)
+
         layout.addWidget(module)
 
     def _firewall_target(self) -> tuple:
@@ -1770,7 +1939,7 @@ class WindowsApplication(QWidget):
     def _firewall_action(self) -> None:
         # Only the built exe changes the firewall, by the button or on its own. From source the
         # executable is python.exe, and repair() replaces Beamer's rules by name, so a test run on
-        # the PC took the installed Beamer's rules with it and cut the Mac's link (29-09-2026).
+        # the PC took the installed Beamer's rules with it and cut the other PC's link (29-09-2026).
         if not getattr(sys, "frozen", False):
             LOGGER.info("Running from source; the firewall is left as it is")
             return
@@ -1910,18 +2079,18 @@ class WindowsApplication(QWidget):
         self.open_action.triggered.connect(self.show_window)
         self.status_action = menu.addAction(self._title())
         self.status_action.setEnabled(False)
-        self.redirect_action = menu.addAction("Send input to your Mac")
+        self.redirect_action = menu.addAction("Send input to the other PC")
         self.redirect_action.triggered.connect(self.toggle_redirect)
         self.pause_action = menu.addAction("Pause crossing")
         self.pause_action.triggered.connect(self.toggle_pause)
         menu.addSeparator()
         # One tick per direction, each the same switch the Overview page shows, so either
         # direction can be turned off while the other keeps working and the two never disagree.
-        self.drive_action = menu.addAction("Your Mac drives this PC")
+        self.drive_action = menu.addAction("The other PC drives this PC")
         self.drive_action.setCheckable(True)
         self.drive_action.toggled.connect(self.allow_switch.setChecked)
         self.allow_switch.toggled.connect(self.drive_action.setChecked)
-        self.send_action = menu.addAction("This PC drives your Mac")
+        self.send_action = menu.addAction("This PC drives the other PC")
         self.send_action.setCheckable(True)
         self.send_action.toggled.connect(self.send_switch.setChecked)
         self.send_switch.toggled.connect(self.send_action.setChecked)
@@ -2064,7 +2233,7 @@ class WindowsApplication(QWidget):
 
     def _on_hook_key(self, name: str, down: bool, vk: Optional[int] = None, us: Optional[str] = None) -> bool:
         """Every key, on the hook thread. The trigger is swallowed as it
-        switches; everything else goes to the Mac only while the Mac has
+        switches; everything else goes to the other PC only while the other PC has
         input, and a key on the ignored list not even then."""
         action = self._trigger.feed(name, down, time.monotonic())
         if action is not None:
@@ -2082,22 +2251,22 @@ class WindowsApplication(QWidget):
         return self.sender.on_key(name, down, vk, us)
 
     def _on_focus(self, target: str) -> None:
-        """The Mac took input on this PC, or gave it back. Either way the
+        """The other PC took input on this PC, or gave it back. Either way the
         outward edge follows: one of the two links owns the keyboard at a
         time, never both."""
-        self.sender.set_receiving(target == "windows")
+        self.sender.set_receiving(target == "peer")
 
     def _on_learned(self, host, edge, resistance) -> None:
-        """The Mac's address and the way home it named in its hello. Saved, so
-        this PC can open its own link to the Mac before the Mac has crossed --
-        or at all, if the Mac is asleep when Beamer starts here."""
+        """The other PC's address and the way home it named in its hello. Saved, so
+        this PC can open its own link to the other PC before the other PC has crossed --
+        or at all, if the other PC is asleep when Beamer starts here."""
         if self._config is None:
             return
         if sender.is_this_machine(host):
-            # The Mac reached this PC through the macOS 27 localhost tunnel,
+            # The other PC reached this PC through the macOS 27 localhost tunnel,
             # so its "address" is this PC's own. Saving it would point the
             # outward link at this PC's own receiver.
-            LOGGER.info("Ignoring %s as the Mac's address: that is this PC", host)
+            LOGGER.info("Ignoring %s as the other PC's address: that is this PC", host)
             host = None
         changed = False
         if host and host != self._config.mac_host and self._config.mac_hardware_address:
@@ -2111,7 +2280,7 @@ class WindowsApplication(QWidget):
             changed = True
         if not changed:
             return
-        LOGGER.info("Learned the Mac at %s, coming home through the %s edge", self._config.mac_host, self._config.mac_return_edge)
+        LOGGER.info("Learned the other PC at %s, coming home through the %s edge", self._config.mac_host, self._config.mac_return_edge)
         if not self._persist():
             return
         self.sender.update_config(self._config)
@@ -2127,7 +2296,7 @@ class WindowsApplication(QWidget):
 
     def _on_redirecting(self, redirecting: bool) -> None:
         self._sending_detail = (
-            "This PC's keyboard and mouse are on the Mac" if redirecting else self.sender.status
+            "This PC's keyboard and mouse are on the other PC" if redirecting else self.sender.status
         )
 
     def _announced_port(self) -> int:
@@ -2147,7 +2316,7 @@ class WindowsApplication(QWidget):
         box.setIconPixmap(QIcon(str(ICON_PATH)).pixmap(64, 64))
         box.setTextFormat(Qt.TextFormat.RichText)
         box.setText(
-            f"<b>Beamer {VERSION}</b><br>One keyboard and mouse for your Mac and PC.<br><br>"
+            f"<b>Beamer {VERSION}</b><br>One keyboard and mouse for your two PCs.<br><br>"
             f'<a href="{HOME_PAGE}" style="color: {theme.colour("signal")};">{HOME_PAGE_TEXT}</a>'
         )
         box.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
@@ -2267,9 +2436,9 @@ class WindowsApplication(QWidget):
         return self.effects
 
     def _return_model(self, edge: str, resistance: int):
-        """The way home for the Mac's pointer through `edge` of this screen, from this PC's own
+        """The way home for the other PC's pointer through `edge` of this screen, from this PC's own
         ways in, as for this PC's own mouse: only the chosen thirds, the whole edge, the corner
-        when it sits on that edge, else none (the Mac's shortcut still switches). On the
+        when it sits on that edge, else none (the other PC's shortcut still switches). On the
         receiver's session thread."""
         config = self._config
         if config is None:
@@ -2325,10 +2494,10 @@ class WindowsApplication(QWidget):
             detail = self._status_detail
         tone = theme.state_tone(state.value.lower())
         self.led.set_tone(tone)
-        # The Mac's name goes in the detail, not the heading: a long name wrapped the heading onto
+        # The other PC's name goes in the detail, not the heading: a long name wrapped the heading onto
         # two lines at 640 wide and made the window scroll.
         if state is ServerState.CONNECTED and detail.startswith("Connected to "):
-            who = (self._config.paired_with if self._config is not None else "") or "Your Mac"
+            who = (self._config.paired_with if self._config is not None else "") or "Other PC"
             detail = f"{who} at {detail[len('Connected to '):]}"
         detail = self._shown(detail)
         heading = STATUS_TITLES[state]
@@ -2342,7 +2511,7 @@ class WindowsApplication(QWidget):
         if detail != self.status_detail.text():
             self.status_detail.setText(detail)
         widgets.set_role(self.status_detail, "note-fault" if state is ServerState.ERROR else "note")
-        location = "On your Mac" if self.sender.redirecting else "On this PC"
+        location = "On the other PC" if self.sender.redirecting else "On this PC"
         if location != self.location_readout.text():
             self.location_readout.setText(location)
         trip = self.sender.round_trip_ms
@@ -2350,7 +2519,7 @@ class WindowsApplication(QWidget):
         if trip_text != self.round_trip_readout.text():
             self.round_trip_readout.setText(trip_text)
             self.round_trip_row.setVisible(trip is not None)
-        redirect_text = "Bring input back to this PC" if self.sender.redirecting else "Send input to your Mac"
+        redirect_text = "Bring input back to this PC" if self.sender.redirecting else "Send input to the other PC"
         if redirect_text != self.redirect_button.text():
             self.redirect_button.setText(redirect_text)
             self.redirect_action.setText(redirect_text)
@@ -2377,10 +2546,10 @@ class WindowsApplication(QWidget):
             shot = motion.snapshot(self.outward_line)
             self.outward_line.setText(outward)
             motion.fade_from(self.outward_line, shot)
-        # "On your Mac" above already says this while redirecting; the hint is for the rest --
+        # "On the other PC" above already says this while redirecting; the hint is for the rest --
         # not connected, or the hooks failing to install -- and stays quiet in the boring case.
         send_hint = "" if self.sender.redirecting or self._sending_detail in (
-            "Off", "Not connected to the Mac"
+            "Off", "Not connected to the other PC"
         ) else self._shown(self._sending_detail)
         if send_hint != self.send_hint.text():
             self.send_hint.setText(send_hint)
@@ -2436,7 +2605,7 @@ def main() -> None:
     # and every Beamer thread must win the CPU for the hook thread to get the
     # GIL. Beamer idles near 0%, so the class costs the rest of the machine
     # nothing (for example, a video pipeline holding half the CPU once left
-    # the PC's mouse stranded on the Mac).
+    # the PC's mouse stranded on the other PC).
     kernel32.GetCurrentProcess.restype = ctypes.c_void_p
     kernel32.SetPriorityClass.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
     if not kernel32.SetPriorityClass(kernel32.GetCurrentProcess(), 0x8000):  # ABOVE_NORMAL_PRIORITY_CLASS

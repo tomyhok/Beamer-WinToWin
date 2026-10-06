@@ -153,10 +153,10 @@ class CrossingWaysTest(unittest.TestCase):
     def test_the_summary_names_every_way_in_one_sentence(self):
         summary = pages_win.ways_summary
         self.assertEqual(summary(["edge"], "right", [], "top_left", "Right Ctrl", "double_tap"),
-                         "Input moves to your Mac when you push through the whole right edge.")
+                         "Input moves to the other PC when you push through the whole right edge.")
         self.assertEqual(
             summary(["shortcut", "part", "corner"], "left", ["start"], "bottom_right", "Right Ctrl", "hold"),
-            "Input moves to your Mac when you push through the top of the left edge, push diagonally into "
+            "Input moves to the other PC when you push through the top of the left edge, push diagonally into "
             "the bottom-right corner or hold Right Ctrl.")
         self.assertIn("choose at least one way", summary([], "left", [], "top_left", "F13", "hold"))
 
@@ -404,9 +404,9 @@ class CrossingPageTest(unittest.TestCase):
     def test_the_crossing_line_gives_the_first_reason_nothing_can_cross(self):
         line = pages_win.crossing_state_sentence
         self.assertTrue(line(False, False, False, False, True, False, None).startswith("Not paired yet"))
-        self.assertTrue(line(True, False, True, False, True, False, None).startswith("Waiting to hear from your Mac"))
-        self.assertTrue(line(True, True, False, False, True, False, None).startswith("This PC drives your Mac is off"))
-        self.assertTrue(line(True, True, True, False, True, False, None).startswith("Not connected to your Mac"))
+        self.assertTrue(line(True, False, True, False, True, False, None).startswith("Waiting to hear from the other PC"))
+        self.assertTrue(line(True, True, False, False, True, False, None).startswith("This PC drives your other PC is off"))
+        self.assertTrue(line(True, True, True, False, True, False, None).startswith("Not connected to the other PC"))
         self.assertTrue(line(True, True, True, True, False, False, None).startswith("Only the shortcut"))
         self.assertTrue(line(True, True, True, True, True, True, None).startswith("Paused."))
         self.assertTrue(line(True, True, True, True, True, False, "Keynote").startswith("Off while Keynote"))
@@ -420,14 +420,14 @@ class CrossingPageTest(unittest.TestCase):
         self.assertFalse(pages_win.crossing_state_blocked(True, True, True, True))
 
     def test_the_overview_says_whether_this_pcs_own_link_is_up(self):
-        self.assertEqual(pages_win.outward_link_line(True), "This PC to your Mac: Linked")
+        self.assertEqual(pages_win.outward_link_line(True), "This PC to the other PC: Linked")
         self.assertEqual(pages_win.outward_link_line(False),
-                         "This PC to your Mac: not connected, so pushing an edge does nothing")
+                         "This PC to the other PC: not connected, so pushing an edge does nothing")
 
     def test_no_learned_edge_is_not_described_as_the_right_edge(self):
         summary = pages_win.ways_summary(["edge"], "", ["middle"], "top_right", "Right Ctrl", "double_tap")
         self.assertNotIn("right edge", summary)
-        self.assertTrue(summary.startswith("Nothing moves input to your Mac until"))
+        self.assertTrue(summary.startswith("Nothing moves input to the other PC until"))
         self.assertIn("the whole right edge", pages_win.ways_summary(["edge"], "right", ["middle"], "top_right", "Right Ctrl", "double_tap"))
 
 

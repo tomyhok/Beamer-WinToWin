@@ -1,21 +1,21 @@
-"""Sending this PC's own keyboard and mouse to the Mac: the mirror of
-mac_app/bridge.py's link half, talking to the same receiver.py the Mac's
+"""Sending this PC's own keyboard and mouse to the other PC: the mirror of
+mac_app/bridge.py's link half, talking to the same receiver.py the other PC's
 sender talks to, over a second connection this PC opens outwards.
 
 Two links, not one bidirectional socket. The existing Mac-to-Windows link is
 the one used every day, and its sequence, acknowledgement and watchdog
 bookkeeping is all sender-shaped; threading a second ownership state through
 it would put that link at risk for nothing. This one is opened by this PC, to
-the Mac's own listener on the same port number, so it needs no inbound
+the other PC's own listener on the same port number, so it needs no inbound
 firewall rule here.
 
 Nothing about the crossing is configured on this side. The Mac names the way
 home on its own link -- the Windows edge input comes back through -- and that
 is the same physical border this PC pushes out across, so the edge, its
-resistance and the Mac's address are all learned rather than typed.
+resistance and the other PC's address are all learned rather than typed.
 
 Which way input is flowing is one state across both links: the outbound edge
-is armed only while the Mac is not driving this PC, so a pointer the Mac is
+is armed only while the other PC is not driving this PC, so a pointer the other PC is
 moving cannot push itself back out through the border it just came in by.
 """
 
@@ -47,7 +47,7 @@ MONITORS_MAX_AGE_SECONDS = 1.0
 CONTROL_MESSAGE_TYPES = frozenset({protocol.MSG_FOCUS, protocol.MSG_CLIPBOARD})
 _LOCAL_CLIPBOARD_SENTINEL_TYPE = "_local_clipboard"
 _GATE_EXEMPT_TYPES = CONTROL_MESSAGE_TYPES | {_LOCAL_CLIPBOARD_SENTINEL_TYPE}
-# A key-up owed to the Mac for a key that went down there, queued as input
+# A key-up owed to the other PC for a key that went down there, queued as input
 # comes home. Local to the queue: _process_outbound rebuilds the message from
 # its type and data, so the mark never reaches the wire.
 _RELEASE_MARK = "_release"
@@ -55,15 +55,15 @@ _RELEASE_MARK = "_release"
 ROUND_TRIP_SAMPLES = 8
 ROUND_TRIP_MAX_AGE_SECONDS = 5.0
 WAKE_POLL_SECONDS = 0.5
-WAKING_STATUS = "Waking your Mac…"
-NOT_WOKEN_STATUS = "Your Mac did not wake"
+WAKING_STATUS = "Waking the other PC…"
+NOT_WOKEN_STATUS = "The other PC did not wake"
 
 # The capture names this PC's Ctrl "cmd" and its Windows key "ctrl", the Semantic style, so Ctrl+C
-# is Cmd+C on the Mac. Positional swaps them back.
+# is Cmd+C on the other PC. Positional swaps them back.
 POSITIONAL_SWAP = {"cmd": "ctrl", "cmd_r": "ctrl_r", "ctrl": "cmd", "ctrl_r": "cmd_r"}
 
-OLD_RECEIVER_STATUS ="The Mac did not answer the handshake — it is probably running an older Beamer; update it"
-AUTH_FAILED_STATUS = "The Mac could not be authenticated — check the shared token matches on both sides"
+OLD_RECEIVER_STATUS ="The other PC did not answer the handshake — it is probably running an older Beamer; update both apps"
+AUTH_FAILED_STATUS = "The other PC could not be authenticated — check the shared token matches on both sides"
 
 
 class HandshakeError(protocol.ProtocolError):
@@ -97,12 +97,12 @@ class FrameDecoder:
 
 
 def is_this_machine(host: str, local_addresses=None, address_towards=None) -> bool:
-    """Whether `host` is this PC rather than the Mac. Worth a guard of its
-    own: the Mac's address is learned from the peer address of its own link,
-    and when the Mac connects through the macOS 27 SSH tunnel that address is
+    """Whether `host` is this PC rather than the other PC. Worth a guard of its
+    own: the other PC's address is learned from the peer address of its own link,
+    and when the other PC connects through the macOS 27 SSH tunnel that address is
     127.0.0.1 -- this PC's. Connecting there would reach this PC's own
     receiver, authenticate with the shared token, and the receiver's preempt
-    rule would close the real Mac's session. The daily link would drop and
+    rule would close the real other PC's session. The daily link would drop and
     reconnect for as long as both were running.
 
     Two answers are consulted, because the first one fails silently: the
@@ -138,8 +138,8 @@ def _default_socket_factory(address, timeout):
 
 
 class MacSender:
-    """One link to the Mac, plus the decision -- taken on the hook thread --
-    of whether each local input event belongs to this PC or to the Mac.
+    """One link to the other PC, plus the decision -- taken on the hook thread --
+    of whether each local input event belongs to this PC or to the other PC.
 
     `status_callback(connected, detail)` and `redirect_callback(redirecting)`
     are called from worker threads; a GUI marshals them. `desktop` and
@@ -166,7 +166,7 @@ class MacSender:
         self._pressure_callback = pressure_callback
         self._arrangement_callback = arrangement_callback
         # `arrival_callback(edge, x, y)`, as the shared receiver's: the pointer came home through the
-        # Mac's return edge and was placed at desktop pixel (x, y) on `edge` of this PC, or, with
+        # other PC's return edge and was placed at desktop pixel (x, y) on `edge` of this PC, or, with
         # edge None, input came home by a switch and the pointer is at (x, y) where it was left.
         self._arrival_callback = arrival_callback
         self._desktop = desktop
@@ -185,8 +185,8 @@ class MacSender:
         self._stop_event = threading.Event()
         self._threads = []
 
-        self._status = "Not connected to the Mac"
-        # Keys whose down-stroke went to the Mac and whose release has not: a
+        self._status = "Not connected to the other PC"
+        # Keys whose down-stroke went to the other PC and whose release has not: a
         # dict, not a set, only so the hook thread's pop() stays one operation.
         self._keys_down: dict = {}
         self._ignore_gate = ignored.Gate()
@@ -197,33 +197,33 @@ class MacSender:
         self._last_send_at = 0.0
 
         self.redirecting = False
-        # Where the pointer was pinned while the Mac has input, and where it
+        # Where the pointer was pinned while the other PC has input, and where it
         # last was while this PC has it. Two names for two states: conflating
         # them made a push against the edge measure its delta from the pin.
         self._pin_point = None
         self._last_point = None
         self._edge = None
         # Two ways the pointer leaves, either or both armed: the whole edge
-        # that leads to the Mac, and the corner sitting at one end of it. The
+        # that leads to the other PC, and the corner sitting at one end of it. The
         # corner is tried first, because its box is inside the edge's strip.
         self._edge_model: Optional[return_edge.ReturnEdge] = None
         self._corner_model: Optional[return_edge.CornerPush] = None
         self._monitors = None
         self._monitors_at = 0.0
-        # Set by the app while the Mac is driving this PC: the outbound edge
+        # Set by the app while the other PC is driving this PC: the outbound edge
         # stays disarmed for as long as it is, so input that arrived over the
         # other link cannot push itself straight back out.
         self._receiving = False
-        # The receiver's way of sending the Mac's input home, handed in by the
+        # The receiver's way of sending the other PC's input home, handed in by the
         # app that owns both halves.
         self.send_peer_home = None
-        # Both hold the edges and leave the shortcut working, as on the Mac: Pause crossing,
+        # Both hold the edges and leave the shortcut working, as on the other PC: Pause crossing,
         # which a restart forgets, and the name of a full-screen app in front, set by the app.
         self.crossing_paused = False
         self.full_screen_app = None
         # The buttons of this PC's own mouse that are down, so a push with one held is a drag.
         self._buttons_held = set()
-        # (title, message) for a notification, and the Mac's hardware address when the ARP table
+        # (title, message) for a notification, and the other PC's hardware address when the ARP table
         # names a new one; both called off the GUI thread.
         self.on_alert = None
         self.on_mac_learned = None
@@ -256,8 +256,8 @@ class MacSender:
 
     @property
     def round_trip_ms(self) -> Optional[int]:
-        """The Mac's figure, measured the same way: the upper median of the last few trips from
-        an input event's send to the ACK naming it, or None while input is not on the Mac, the
+        """The other PC's figure, measured the same way: the upper median of the last few trips from
+        an input event's send to the ACK naming it, or None while input is not on the other PC, the
         link is down, or nothing fresh has been acknowledged for a few seconds."""
         if not self.redirecting or not self.connected:
             return None
@@ -273,7 +273,7 @@ class MacSender:
         return self.crossing_paused or self.full_screen_app is not None
 
     def set_receiving(self, receiving: bool) -> None:
-        """Called when the Mac takes input on this PC, and again when it gives
+        """Called when the other PC takes input on this PC, and again when it gives
         it back. While it is True nothing here arms, sends or crosses."""
         receiving = bool(receiving)
         if receiving == self._receiving:
@@ -354,8 +354,8 @@ class MacSender:
         # with Shift applied, so Shift let go before A made A's release arrive as "a" and miss.
         held = vk if vk is not None else name
         if not self.redirecting:
-            # A key that went down on the Mac and is still held after input
-            # came home: the Mac was sent its release when input left, and
+            # A key that went down on the other PC and is still held after input
+            # came home: the other PC was sent its release when input left, and
             # Windows never saw it go down, so it must see neither its
             # autorepeats nor its release. The entry goes on the release.
             if held not in self._keys_down:
@@ -364,7 +364,7 @@ class MacSender:
                 self._keys_down.pop(held, None)
             return True
         if not self._link_live():
-            self._force_local("the link to the Mac went quiet")
+            self._force_local("the link to the other PC went quiet")
             return False
         if vk is not None and self._ignore_gate.keeps(ignored.key(vk), down):
             return False
@@ -377,12 +377,12 @@ class MacSender:
         else:
             data = self._keys_down.pop(held, None) or self._key_data(name, us)
             # Marked, so a release still queued when input comes home is sent
-            # rather than dropped by the gate: the Mac has the key-down.
+            # rather than dropped by the gate: the other PC has the key-down.
             self._enqueue({"type": protocol.MSG_KEYUP, "data": data, _RELEASE_MARK: True})
         return True
 
     def _key_data(self, name: str, us: Optional[str]) -> dict:
-        """A key message's data. `us` is the key's place on a US keyboard, which the Mac types on
+        """A key message's data. `us` is the key's place on a US keyboard, which the other PC types on
         when its layout cannot type the character: a PC on Russian sends C as "с"."""
         data = {"key": self._wire_name(name)}
         if us is not None:
@@ -391,15 +391,15 @@ class MacSender:
 
     def _wire_name(self, name: str) -> str:
         """The capture names Ctrl "cmd" and the Windows key "ctrl", the Semantic style;
-        Positional swaps them back, so each key arrives as the Mac key in its place."""
-        if self._setting("modifier_style", "semantic") == "positional":
+        Positional swaps them back, so each key arrives as the other PC key in its place."""
+        if self._setting("modifier_style", "positional") == "positional":
             return POSITIONAL_SWAP.get(name, name)
         return name
 
     def on_mouse(self, message: int, x: int, y: int, mouse_data: int) -> bool:
         """Buttons and the wheel, and swallowing a move -- never the distance
         it covered, which comes from on_motion. Returns True when the event
-        belongs to the Mac and Windows must not see it."""
+        belongs to the other PC and Windows must not see it."""
         import capture_win
 
         button = capture_win.button_of(message, mouse_data)
@@ -412,7 +412,7 @@ class MacSender:
         if not self.redirecting:
             return False
         if not self._link_live():
-            self._force_local("the link to the Mac went quiet")
+            self._force_local("the link to the other PC went quiet")
             return False
         if message == capture_win.WM_MOUSEMOVE:
             # Swallowed, and the pointer put back where it was: a hook that
@@ -428,7 +428,7 @@ class MacSender:
         keeps the movement off this PC."""
         if self.redirecting:
             if not self._link_live():
-                self._force_local("the link to the Mac went quiet")
+                self._force_local("the link to the other PC went quiet")
                 return
             self._enqueue({"type": protocol.MSG_MOUSEMOVE, "data": {"dx": int(dx), "dy": int(dy)}})
             return
@@ -450,13 +450,13 @@ class MacSender:
         if message == capture_win.WM_MOUSEHWHEEL:
             self._enqueue(protocol.scroll_msg(0.0, capture_win.wheel_notches(mouse_data), "line"))
             return True
-        # Anything else the Mac has no name for: left to Windows rather than
+        # Anything else the other PC has no name for: left to Windows rather than
         # dropped.
         return False
 
     def _press_edge(self, dx, dy) -> None:
         """One raw movement while input is still this PC's. Feeds the same
-        return-edge model the Mac's receiver uses, so the border behaves
+        return-edge model the other PC's receiver uses, so the border behaves
         identically whichever side of it the pointer starts on.
 
         Nothing is held here, unlike the receiver's side of the same model:
@@ -464,16 +464,16 @@ class MacSender:
         the hold is the screen's own. Only the pressure is ours to measure,
         and only a breakthrough acts.
 
-        It runs while the Mac is driving this PC too. Every move the Mac makes
+        It runs while the other PC is driving this PC too. Every move the other PC makes
         here carries INJECTED_MARK and never arrives, so what does is this
         PC's own mouse, and its push out means the pointer is going back to
-        the Mac with this mouse behind it (ignoring this once left only the
-        Mac's trackpad able to take the pointer back)."""
+        the other PC with this mouse behind it (ignoring this once left only the
+        other PC's trackpad able to take the pointer back)."""
         if not self.connected or self.edges_held:
             return
         if self._buttons_held and self._setting("block_while_dragging", True) and self._still_dragging():
             # A drag that reaches the edge is dragging, not leaving: the push so far is dropped,
-            # as the Mac drops it, so letting go at the edge does not finish a crossing.
+            # as the other PC drops it, so letting go at the edge does not finish a crossing.
             for candidate in (self._corner_model, self._edge_model):
                 if candidate is not None:
                     candidate.reset()
@@ -493,7 +493,7 @@ class MacSender:
             if outcome is None:
                 return
         except Exception:
-            LOGGER.exception("The way out to the Mac failed; crossing out is off until the next reconnect")
+            LOGGER.exception("The way out to the other PC failed; crossing out is off until the next reconnect")
             self._edge_model = self._corner_model = None
             return
         part = None
@@ -505,13 +505,13 @@ class MacSender:
         self._notify_pressure(model.edge, outcome.pressure, outcome.action == return_edge.CROSS, part)
         if outcome.action == return_edge.CROSS:
             if self._receiving:
-                # The Mac's input goes home first, over its own link; its
-                # focus back to the Mac clears receiving here too, later, and
+                # The other PC's input goes home first, over its own link; its
+                # focus back to the other PC clears receiving here too, later, and
                 # finds it already cleared.
                 send_home = self.send_peer_home
                 if send_home is None or not send_home():
-                    LOGGER.warning("cannot cross: the Mac is driving this PC and cannot be reached")
-                    self._alert("Cannot switch — the Mac is driving this PC and cannot be reached")
+                    LOGGER.warning("cannot cross: the other PC is driving this PC and cannot be reached")
+                    self._alert("Cannot switch — the other PC is driving this PC and cannot be reached")
                     return
                 self._receiving = False
             # The model names the edge on the far side, not the one just left:
@@ -533,34 +533,34 @@ class MacSender:
     # -- switching ----------------------------------------------------------
 
     def set_redirecting(self, value, arrival_edge=None, offset=None, came_home=True) -> bool:
-        """`arrival_edge` is the Mac edge the pointer arrives at and `offset`
+        """`arrival_edge` is the other PC edge the pointer arrives at and `offset`
         the fraction along it -- the same fraction it left this PC at, which
         is what makes one border out of two screens. Both are absent when the
         shortcut moved input rather than a crossing.
 
         Input coming home this way is a switch -- the shortcut, the tray, the
-        direction switch or the Mac sending it back -- and is reported to the
+        direction switch or the other PC sending it back -- and is reported to the
         arrival callback with edge None, for the arrival that shows where the
         pointer is. `came_home` is False for the two ways back that show their
-        own: a crossing that lands here, and the Mac taking this PC over."""
+        own: a crossing that lands here, and the other PC taking this PC over."""
         value = bool(value)
         if value == self.redirecting:
             return False
         if value:
             if not self.connected:
-                LOGGER.warning("cannot redirect: the Mac is not connected")
+                LOGGER.warning("cannot redirect: the other PC is not connected")
                 if not self.wake():
                     self._alert(f"Cannot switch — {self._status}")
                 return False
             if self._receiving:
-                # The Mac is driving this PC over the other link, so switching
-                # to the Mac means sending its input home, the way back that
-                # does not depend on the Mac's own return edge.
+                # The other PC is driving this PC over the other link, so switching
+                # to the other PC means sending its input home, the way back that
+                # does not depend on the other PC's own return edge.
                 send_home = self.send_peer_home
                 if send_home is not None and send_home():
                     return True
-                LOGGER.warning("cannot redirect: the Mac is driving this PC and cannot be reached")
-                self._alert("Cannot switch — the Mac is driving this PC and cannot be reached")
+                LOGGER.warning("cannot redirect: the other PC is driving this PC and cannot be reached")
+                self._alert("Cannot switch — the other PC is driving this PC and cannot be reached")
                 return False
             self.redirecting = True
             self._pin_point = self._desktop_module().cursor_position()
@@ -568,17 +568,17 @@ class MacSender:
             self._enqueue_control({"type": _LOCAL_CLIPBOARD_SENTINEL_TYPE, "data": {}})
             self._enqueue_control(
                 protocol.focus_msg(
-                    "mac",
+                    "peer",
                     edge=arrival,
                     offset=offset,
                     return_edge=arrival or self._mac_arrival_edge(),
                     resistance_px=int(self._resistance()),
                 )
             )
-            LOGGER.info("redirecting input to the Mac")
+            LOGGER.info("redirecting input to the other PC")
         else:
             # The flag first, so the hook thread stops adding keys; then
-            # whatever is still down on the Mac is released there before the
+            # whatever is still down on the other PC is released there before the
             # focus goes home, marked to pass the gate that has just closed.
             # The entries stay, so the physical releases here are swallowed.
             self.redirecting = False
@@ -625,7 +625,7 @@ class MacSender:
         edge = data.get("edge")
         offset = data.get("offset")
         crossed = edge in return_edge.EDGES and isinstance(offset, (int, float)) and not isinstance(offset, bool)
-        # Without an edge the Mac sent this PC's input home by its own switch: that is a switch
+        # Without an edge the other PC sent this PC's input home by its own switch: that is a switch
         # arriving here, and shows where the pointer is.
         self.set_redirecting(False, came_home=not crossed)
         if crossed:
@@ -656,7 +656,7 @@ class MacSender:
     def _connect_once(self, config) -> bool:
         host, port = self._address(config)
         sock = None
-        self._set_status(f"Connecting to the Mac at {host}:{port}")
+        self._set_status(f"Connecting to the other PC at {host}:{port}")
         try:
             sock = self._socket_factory((host, port), CONNECT_TIMEOUT_SECONDS)
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -685,7 +685,7 @@ class MacSender:
                 # The receiver closes without a word when a frame fails to authenticate.
                 raise HandshakeError(AUTH_FAILED_STATUS) from None
             if reply.get("type") != protocol.MSG_WELCOME:
-                raise protocol.ProtocolError("the Mac did not confirm authentication")
+                raise protocol.ProtocolError("the other PC did not confirm authentication")
             data = reply.get("data")
             if not isinstance(data, dict):
                 raise protocol.ProtocolError("welcome message missing data")
@@ -695,12 +695,12 @@ class MacSender:
         except HandshakeError as exc:
             self._close(sock)
             self._set_status(exc.status)
-            LOGGER.warning("connection to the Mac failed: %s", exc.status)
+            LOGGER.warning("connection to the other PC failed: %s", exc.status)
             return False
         except (OSError, protocol.ProtocolError) as exc:
             self._close(sock)
-            self._set_status(f"The Mac is not reachable on {host}:{port}")
-            LOGGER.debug("connection to the Mac failed: %s", exc)
+            self._set_status(f"The other PC is not reachable on {host}:{port}")
+            LOGGER.debug("connection to the other PC failed: %s", exc)
             return False
         with self._socket_lock:
             if self._stop_event.is_set() or self._sock is not None:
@@ -719,13 +719,13 @@ class MacSender:
             self._round_trip_at = 0.0
         self._connected_at = now
         self._last_send_at = now
-        self._set_status(f"Connected to the Mac at {host}")
-        LOGGER.info("connected to the Mac at %s:%s", host, port)
+        self._set_status(f"Connected to the other PC at {host}")
+        LOGGER.info("connected to the other PC at %s:%s", host, port)
         self._learn_mac_address(host)
         return True
 
     def _learn_mac_address(self, host) -> None:
-        """Read the Mac's hardware address from the ARP table while the entry is fresh, for the
+        """Read the other PC's hardware address from the ARP table while the entry is fresh, for the
         wake-up a later switch may need."""
         try:
             address = self._mac_lookup(host)
@@ -735,7 +735,7 @@ class MacSender:
         if not address or address == self._setting("mac_hardware_address", ""):
             return
         # Not written here: the config is the app's own object, which the app saves.
-        LOGGER.info("learned the Mac's hardware address from the ARP table")
+        LOGGER.info("learned the other PC's hardware address from the ARP table")
         if self.on_mac_learned is not None:
             try:
                 self.on_mac_learned(address)
@@ -743,8 +743,8 @@ class MacSender:
                 LOGGER.exception("on_mac_learned callback failed")
 
     def wake(self) -> bool:
-        """Send the Mac a wake-on-LAN packet and wait up to a minute for the link, as the Mac
-        does for the PC. Nothing is queued: the person switches again once the Mac is up. False
+        """Send the other PC a wake-on-LAN packet and wait up to a minute for the link, as the other PC
+        does for the PC. Nothing is queued: the person switches again once the other PC is up. False
         when there is no address to wake or a wake is already in flight."""
         address = self._setting("mac_hardware_address", "")
         if not address or self.connected or self._status in (AUTH_FAILED_STATUS, OLD_RECEIVER_STATUS) \
@@ -767,20 +767,20 @@ class MacSender:
             self._waking = False
             self._alert("Could not send the wake-up packet")
             return
-        LOGGER.info("sent wake-on-LAN to the Mac")
+        LOGGER.info("sent wake-on-LAN to the other PC")
         self._alert(WAKING_STATUS)
         while not self._stop_event.wait(WAKE_POLL_SECONDS):
             if self.connected:
                 self._waking = False
-                LOGGER.info("the Mac woke and connected")
-                self._alert("Your Mac is awake — switch again to send input")
+                LOGGER.info("the other PC woke and connected")
+                self._alert("Your other PC is awake — switch again to send input")
                 return
             if self._clock() - started >= wol.WAKE_WINDOW_SECONDS:
                 break
         self._waking = False
         if self._stop_event.is_set():
             return
-        LOGGER.warning("the Mac did not answer within %.0fs of the wake-on-LAN packet", wol.WAKE_WINDOW_SECONDS)
+        LOGGER.warning("the other PC did not answer within %.0fs of the wake-on-LAN packet", wol.WAKE_WINDOW_SECONDS)
         self._alert(NOT_WOKEN_STATUS)
 
     def _alert(self, message: str) -> None:
@@ -828,14 +828,14 @@ class MacSender:
                 self._unacked_sent_at.append((seq, self._last_send_at))
 
     def send_arrangement(self, mac_edge: str, set_at: int) -> bool:
-        """Tell the Mac where the machines are, when the change was made here."""
+        """Tell the other PC where the machines are, when the change was made here."""
         return self._send_raw(protocol.arrangement_msg(mac_edge, set_at))
 
     def _send_local_clipboard(self) -> None:
         try:
             text, image = self._clipboard_module().changed_contents()
         except Exception:
-            LOGGER.exception("Failed to read the local clipboard for the Mac")
+            LOGGER.exception("Failed to read the local clipboard for the other PC")
             return
         if text and len(text.encode("utf-8")) > protocol.CLIPBOARD_MAX_BYTES:
             LOGGER.warning("Local clipboard text too large; skipping the text")
@@ -857,7 +857,7 @@ class MacSender:
                 self._last_send_at = self._clock()
                 return True
             except (OSError, protocol.ProtocolError) as exc:
-                self._connection_failed(f"Sending to the Mac failed: {exc}", expected_socket=sock)
+                self._connection_failed(f"Sending to the other PC failed: {exc}", expected_socket=sock)
                 return False
 
     def _reader_worker(self) -> None:
@@ -878,7 +878,7 @@ class MacSender:
             except socket.timeout:
                 continue
             except OSError as exc:
-                self._connection_failed(f"Receiving from the Mac failed: {exc}", expected_socket=sock)
+                self._connection_failed(f"Receiving from the other PC failed: {exc}", expected_socket=sock)
                 active_socket = None
                 continue
             if not chunk:
@@ -892,13 +892,13 @@ class MacSender:
                 self._connection_failed(AUTH_FAILED_STATUS, expected_socket=sock)
                 active_socket = None
             except protocol.ProtocolError as exc:
-                self._connection_failed(f"Invalid stream from the Mac: {exc}", expected_socket=sock)
+                self._connection_failed(f"Invalid stream from the other PC: {exc}", expected_socket=sock)
                 active_socket = None
             except Exception as exc:
                 # The same outcome as a malformed frame: this connection goes,
                 # the thread stays, and the next connection gets a reader.
                 LOGGER.exception("inbound handling failed")
-                self._connection_failed(f"Inbound message from the Mac failed: {exc}", expected_socket=sock)
+                self._connection_failed(f"Inbound message from the other PC failed: {exc}", expected_socket=sock)
                 active_socket = None
 
     def _handle_inbound(self, message) -> None:
@@ -943,7 +943,7 @@ class MacSender:
                 self._measure_round_trip(seq, self._clock())
 
     def _measure_round_trip(self, seq, now) -> None:
-        """Under _sequence_lock. From the send of the event the ACK names, as on the Mac: the
+        """Under _sequence_lock. From the send of the event the ACK names, as on the other PC: the
         receiver acknowledges the highest seq it has handled on a timer, so an older one would
         only measure that timer."""
         sent_at = None
@@ -962,7 +962,7 @@ class MacSender:
         if not isinstance(text, str) or not text:
             text = None
         elif len(text.encode("utf-8")) > protocol.CLIPBOARD_MAX_BYTES:
-            LOGGER.warning("Ignoring oversized inbound clipboard text from the Mac")
+            LOGGER.warning("Ignoring oversized inbound clipboard text from the other PC")
             text = None
         image = protocol.clipboard_image(data)
         if text is None and image is None:
@@ -970,7 +970,7 @@ class MacSender:
         try:
             self._clipboard_module().set_contents(text, image)
         except Exception:
-            LOGGER.exception("Failed to set the local clipboard from the Mac")
+            LOGGER.exception("Failed to set the local clipboard from the other PC")
 
     def _watchdog_worker(self) -> None:
         while not self._stop_event.wait(0.1):
@@ -995,7 +995,7 @@ class MacSender:
         try:
             self._outbound.put_nowait(message)
         except queue.Full:
-            self._force_local("the outbound queue to the Mac filled up")
+            self._force_local("the outbound queue to the other PC filled up")
 
     def _enqueue_control(self, message) -> None:
         try:
@@ -1052,9 +1052,9 @@ class MacSender:
             pass
 
     def _mac_arrival_edge(self) -> Optional[str]:
-        """The Mac edge input arrives at, which is also the Mac's way home:
+        """The Mac edge input arrives at, which is also the other PC's way home:
         the far side of this PC's own outward edge. Sent in the hello as well
-        as on every switch, so the Mac is armed to push back before it has
+        as on every switch, so the other PC is armed to push back before it has
         ever been pushed into."""
         return return_edge.OPPOSITE.get(self._edge) if self._edge else None
 
@@ -1099,7 +1099,7 @@ class MacSender:
 
     def _resistance(self) -> int:
         """How hard this PC's own way out pushes back, which is this PC's
-        setting -- and also what the Mac is asked to use at its return edge, so
+        setting -- and also what the other PC is asked to use at its return edge, so
         one number governs the whole round trip in this direction."""
         return int(self._setting("crossing_resistance_px", return_edge.DEFAULT_RESISTANCE_PX))
 
@@ -1107,14 +1107,14 @@ class MacSender:
         """Put the pointer back where it was when input left. Measured: SetCursorPos
         produces no raw input at all -- a deliberate 137-pixel warp in a quiet
         window produced no WM_INPUT -- so the pin cannot feed itself back to
-        the Mac as movement nobody made."""
+        the other PC as movement nobody made."""
         pin = self._pin_point
         if pin is None:
             return
         try:
             self._desktop_module().set_cursor_position(*pin)
         except Exception:
-            LOGGER.exception("Could not hold the pointer while the Mac has input")
+            LOGGER.exception("Could not hold the pointer while the other PC has input")
 
     def _cached_monitors(self):
         now = self._clock()

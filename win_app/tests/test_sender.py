@@ -283,7 +283,7 @@ class LinkTests(unittest.TestCase):
             injector=self.injector,
             self_name="Mac",
             peer_name="PC",
-            self_target="mac",
+            self_target="peer",
             peer_target="windows",
         )
         self.port = free_port()
@@ -303,10 +303,10 @@ class LinkTests(unittest.TestCase):
 
     def test_keys_reach_the_mac_injector(self):
         self.sender.set_redirecting(True, arrival_edge="right", offset=0.5)
-        self.sender.on_key("cmd", True)
+        self.sender.on_key("ctrl", True)
         self.sender.on_key("c", True)
         self.sender.on_key("c", False)
-        self.sender.on_key("cmd", False)
+        self.sender.on_key("ctrl", False)
         wait_for_calls(self.injector.calls, 4)
         self.assertEqual(
             self.injector.calls,

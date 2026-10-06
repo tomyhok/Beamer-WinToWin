@@ -164,7 +164,7 @@ class AlertAndWakeTests(unittest.TestCase):
         self.assertFalse(self.sender.set_redirecting(True))
         self.assertTrue(wait_for(lambda: self.packets))
         self.assertEqual(self.packets[0], ("02:1A:2B:3C:0D:4E", "127.0.0.1"))
-        self.assertTrue(wait_for(lambda: "Waking your Mac…" in self.alerts))
+        self.assertTrue(wait_for(lambda: "Waking the other PC…" in self.alerts))
         self.sender._stop_event.set()
 
     def test_a_mac_that_refused_the_token_is_not_woken(self):

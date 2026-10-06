@@ -12,29 +12,29 @@ import effects
 # (key, name, what the page is for), in sidebar order, which is setup order; Ctrl+1 is the first.
 PAGES = (
     ("overview", "Overview",
-     "Where input is right now, and the controls you reach for every day. Pair with your Mac here "
+     "Where input is right now, and the controls you reach for every day. Pair with the other PC here "
      "first."),
     ("crossing", "Crossing",
-     "Choose how the pointer or a key moves input to your Mac, and how hard the edge pushes back "
+     "Choose how the pointer or a key moves input to the other PC, and how hard the edge pushes back "
      "first."),
     ("keyboard", "Keyboard",
-     "How this PC's Ctrl and Windows keys arrive on your Mac, the keys and buttons that stay here, "
-     "and how fast your Mac's pointer moves here."),
+     "How this PC's Ctrl and Windows keys arrive on the other PC, the keys and buttons that stay here, "
+     "and how fast the other PC's pointer moves here."),
     ("design", "Design",
-     "How crossing looks on this PC: the light as you push toward your Mac, and where the pointer "
+     "How crossing looks on this PC: the light as you push toward the other PC, and where the pointer "
      "lands."),
     ("connection", "Connection",
-     "Whether Windows Firewall lets your Mac in, this PC's address, port and shared token, and your "
+     "Whether Windows Firewall lets the other PC in, this PC's address, port and shared token, and your "
      "Mac's IP address, which pairing learns."),
 )
 KEYS = tuple(page[0] for page in PAGES)
-# Under the purpose on the pages whose settings are this PC's alone, so nobody looks for the Mac's
+# Under the purpose on the pages whose settings are this PC's alone, so nobody looks for the other PC's
 # on the PC: each app sets only its own machine.
 SCOPE = {
-    "crossing": "For this PC only; your Mac keeps its own. Only which side your Mac is on is shared. This PC's "
-                "resistance is also what its pointer meets at your Mac's edge on the way back.",
-    "design": "For this PC's screen only; your Mac keeps its own.",
-    "keyboard": "For this PC's keyboard only; your Mac keeps its own.",
+    "crossing": "For this PC only; the other PC keeps its own. Only which side the other PC is on is shared. This PC's "
+                "resistance is also what its pointer meets at the other PC's edge on the way back.",
+    "design": "For this PC's screen only; the other PC keeps its own.",
+    "keyboard": "For this PC's keyboard only; the other PC keeps its own.",
 }
 # The window's footer; the first sentence goes on Connection, whose changes wait for its button.
 FOOTER_APPLY = "Changes apply as you make them."
@@ -61,7 +61,7 @@ def dots(config_error: bool, firewall_tone: str | None) -> dict:
 
 # The Design page's styles and colours: Classic first, then each crossing effects direction in
 # effects.DIRECTIONS order. Classic's Glow and Beam light this PC's edge or corner as the pointer
-# leaves; the effects draw the departure and the arrival, at an edge, a corner or the Mac's notch.
+# leaves; the effects draw the departure and the arrival, at an edge, a corner or the other PC's notch.
 CLASSIC = "Classic"
 TODAY_STYLES = (
     ("glow", "Glow", "A band of light that deepens the harder you push."),
@@ -171,22 +171,22 @@ def toggle_part(parts, part, on) -> list:
     return [candidate for candidate in ("start", "middle", "end") if candidate in chosen]
 
 
-NOT_LEARNED_EDGE = "Not learned yet: your Mac tells this PC when it first connects, or choose a side."
+NOT_LEARNED_EDGE = "Not learned yet: your other PC tells this PC when it first connects, or choose a side."
 
 
 def crossing_state_sentence(paired, mac_heard, sending, connected, armed, paused, full_screen_app) -> str:
     """The Crossing page's line under Pause: why nothing can cross, first match wins, and only then
     whether crossing is on, held or paused."""
     if not paired:
-        return "Not paired yet, so no edge or shortcut moves input until you pair with your Mac above."
+        return "Not paired yet, so no edge or shortcut moves input until you pair with the other PC above."
     if not mac_heard:
-        return "Waiting to hear from your Mac. This PC cannot push into it until your Mac has connected once."
+        return "Waiting to hear from the other PC. This PC cannot push into it until the other PC has connected once."
     if not sending:
-        return "This PC drives your Mac is off, so edges and the shortcut do nothing."
+        return "This PC drives your other PC is off, so edges and the shortcut do nothing."
     if not connected:
         return (
-            "Not connected to your Mac, so edges and the shortcut do nothing yet. "
-            "Check that Windows drives this Mac is on, on your Mac."
+            "Not connected to the other PC, so edges and the shortcut do nothing yet. "
+            "Check that Windows drives this other PC is on, on the other PC."
         )
     if not armed:
         return "Only the shortcut is switched on; there is nothing to pause."
@@ -206,19 +206,19 @@ def crossing_state_blocked(paired, mac_heard, sending, connected) -> bool:
 
 
 def outward_link_line(connected) -> str:
-    """The Overview's line for this PC's own link to the Mac, which its edges need and the receiver's
+    """The Overview's line for this PC's own link to the other PC, which its edges need and the receiver's
     status above it does not say."""
     if connected:
-        return "This PC to your Mac: Linked"
-    return "This PC to your Mac: not connected, so pushing an edge does nothing"
+        return "This PC to the other PC: Linked"
+    return "This PC to the other PC: not connected, so pushing an edge does nothing"
 
 
 def crossing_rows(methods) -> frozenset:
     """Which of the Crossing page's rows the chosen ways use; the rest are hidden."""
     methods = set(methods)
     rows = set()
-    # Where the Mac sits, which every way in uses: a crossing lands by it, and this PC's edge facing
-    # the Mac leads there whatever the Mac's own ways in are.
+    # Where the other PC sits, which every way in uses: a crossing lands by it, and this PC's edge facing
+    # the other PC leads there whatever the other PC's own ways in are.
     rows.add("edge")
     if "part" in methods:
         rows.add("parts")
@@ -232,7 +232,7 @@ def crossing_rows(methods) -> frozenset:
 
 
 # What a switch into this PC plays, as the Design page's Shortcut and menu tiles: the first group
-# stands in for Classic's Glow and Beam, which have no arrival of their own. Named as the Mac's is.
+# stands in for Classic's Glow and Beam, which have no arrival of their own. Named as the other PC's is.
 SIMPLE = "Simple"
 SWITCH_SIMPLE = (
     ("match", "Same as crossing", "Plays the crossing style"),
@@ -245,7 +245,7 @@ def switch_groups() -> tuple:
     return ((SIMPLE, SWITCH_SIMPLE),) + style_groups()[1:]
 
 
-# The Crossing page's "Where your Mac is": the value is the edge of this PC that leads to the Mac.
+# The Crossing page's "Where your other PC is": the value is the edge of this PC that leads to the other PC.
 SIDE_CHOICES = (("left", "Left"), ("right", "Right"), ("top", "Above"), ("bottom", "Below"))
 # The ways in, as their rows read: the pointer's first, then the shortcut.
 WAY_ROWS = (
@@ -263,9 +263,9 @@ def trigger_phrase(key_name: str, style: str) -> str:
 
 
 def ways_summary(methods, edge, parts, corner, key_name, style) -> str:
-    """The Ways in module's first line: every way input leaves for the Mac, in one sentence."""
+    """The Ways in module's first line: every way input leaves for the other PC, in one sentence."""
     if not edge:
-        return "Nothing moves input to your Mac until it has connected once and told this PC which side it is on."
+        return "Nothing moves input to the other PC until it has connected once and told this PC which side it is on."
     methods = set(methods)
     ways = []
     if "edge" in methods:
@@ -277,12 +277,12 @@ def ways_summary(methods, edge, parts, corner, key_name, style) -> str:
     if "shortcut" in methods:
         ways.append(f"hold {key_name}" if style == "hold" else f"press {key_name} twice")
     if not ways:
-        return "Nothing moves input to your Mac: choose at least one way below."
+        return "Nothing moves input to the other PC: choose at least one way below."
     joined = ways[0] if len(ways) == 1 else ", ".join(ways[:-1]) + " or " + ways[-1]
-    return f"Input moves to your Mac when you {joined}."
+    return f"Input moves to the other PC when you {joined}."
 
 
-# The arrangement diagram. Each side of this PC has an angle, and the Mac's screen travels round
+# The arrangement diagram. Each side of this PC has an angle, and the other PC's screen travels round
 # this PC's between them: through a corner position, never across it.
 SIDE_ANGLE = {"right": 0.0, "top": 90.0, "left": 180.0, "bottom": 270.0}
 
@@ -312,8 +312,8 @@ def square_point(angle: float) -> tuple:
 
 
 def arrangement_rects(width: float, top: float, angle: float, screen: tuple, gap: float) -> tuple:
-    """(this PC's screen, your Mac's screen, the pair's height) as (x, y, w, h) rects, the pair
-    centred across `width` and starting at `top`, the Mac's screen at `angle` from this PC's."""
+    """(this PC's screen, the other PC's screen, the pair's height) as (x, y, w, h) rects, the pair
+    centred across `width` and starting at `top`, the other PC's screen at `angle` from this PC's."""
     w, h = screen
     sx, sy = square_point(angle)
     dx, dy = sx * (w + gap), -sy * (h + gap)

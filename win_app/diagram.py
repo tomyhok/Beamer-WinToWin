@@ -42,7 +42,7 @@ def _marks(edge, methods, parts, corner, shortcut) -> dict:
 
 
 class ArrangementDiagram(QWidget):
-    """This PC's screen with your Mac's beside it on the chosen side, and on this PC's screen,
+    """This PC's screen with the other PC's beside it on the chosen side, and on this PC's screen,
     lit, whatever crosses; the shortcut as a key cap underneath."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -103,7 +103,7 @@ class ArrangementDiagram(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         pc, mac, pair_h = pages_win.arrangement_rects(self.width(), PAD, self._angle, SCREEN, GAP)
         radius = tokens.RADIUS["field"]
-        self._screen(painter, QRectF(*mac), "Your Mac", "panel", "edge", "ink_3", radius)
+        self._screen(painter, QRectF(*mac), "Other PC", "panel", "edge", "ink_3", radius)
         self._screen(painter, QRectF(*pc), "This PC", "well", "edge", "ink_2", radius)
         for key, level in self._marks.items():
             if level <= 0.001:
@@ -198,7 +198,7 @@ class ArrangementDiagram(QWidget):
 
 
 class PushStrip(QWidget):
-    """A band of this screen's edge: the edge line, your Mac beyond it, and a `signal` fill from the
+    """A band of this screen's edge: the edge line, the other PC beyond it, and a `signal` fill from the
     edge as deep as the resistance, with the pointer at its end. A change slides the fill and the
     pointer to the new depth, lit bright, and the light then settles."""
 
@@ -253,7 +253,7 @@ class PushStrip(QWidget):
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        # Drawn with your Mac on the right; flipped when it is on the left.
+        # Drawn with the other PC on the right; flipped when it is on the left.
         if self._mac_left:
             painter.translate(self.width(), 0)
             painter.scale(-1, 1)
@@ -286,7 +286,7 @@ class PushStrip(QWidget):
             # Text drawn in the flipped frame would read backwards.
             painter.resetTransform()
             label = QRectF(self.width() - label.right(), label.top(), label.width(), label.height())
-        painter.drawText(label, Qt.AlignmentFlag.AlignCenter, "Your Mac")
+        painter.drawText(label, Qt.AlignmentFlag.AlignCenter, "Other PC")
         painter.end()
 
     def _pointer(self, painter, tip: QPointF) -> None:

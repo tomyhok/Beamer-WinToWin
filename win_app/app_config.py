@@ -32,7 +32,7 @@ TRIGGER_VKS = {
     name: vk for vk, name in capture_win.VK_TO_NAME.items() if vk not in _NOT_TRIGGERS
 }
 TRIGGER_KEYS = {name: capture_win.VK_TITLES[vk] for name, vk in TRIGGER_VKS.items()}
-# Loaded if a config names them, never offered by the recorder, as on the Mac: Backspace, Tab,
+# Loaded if a config names them, never offered by the recorder, as on the other PC: Backspace, Tab,
 # Enter, Esc and Space are typing keys a double-tap or a hold would take from every app, and
 # Windows gives a window no key-down for Print Screen, so it cannot be recorded at all.
 UNRECORDABLE_TRIGGER_VKS = {0x08, 0x09, 0x0D, 0x1B, 0x20, 0x2C}
@@ -69,7 +69,7 @@ class Config:
     shortcut_arrival_style: str = "match"
     # How long an effect takes to play through once the pointer crosses: see effects.LENGTHS.
     effect_length: str = "normal"
-    # The Mac's name from the last pairing, for the window to say who this PC is paired with.
+    # The other PC's name from the last pairing, for the window to say who this PC is paired with.
     paired_with: str = ""
     # Whether each machine may take the other's input. Two plain switches: the
     # receiver, and the outward link.
@@ -78,7 +78,7 @@ class Config:
     check_updates: bool = True
     # Every address the window shows is hidden.
     hide_addresses: bool = False
-    # How the Mac's pointer and scroll feel on this PC; see receiver.InputScale.
+    # How the other PC's pointer and scroll feel on this PC; see receiver.InputScale.
     pointer_speed: float = 1.0
     scroll_speed: float = 1.0
     reverse_scroll: bool = False
@@ -87,35 +87,35 @@ class Config:
     # none of them means the PC can only be driven, never drive.
     crossing_methods: list = field(default_factory=lambda: ["edge", "shortcut"])
     crossing_corner: str = "top_left"
-    # "Part of the edge": the thirds of the edge to the Mac that cross, as return_edge.PARTS names them.
+    # "Part of the edge": the thirds of the edge to the other PC that cross, as return_edge.PARTS names them.
     crossing_edge_parts: list = field(default_factory=lambda: ["middle"])
     crossing_resistance_px: int = 120
     trigger_key: str = "cmd_r"
     trigger_style: str = "double_tap"
     double_tap_ms: int = 300
-    # How this PC's Ctrl and Windows keys arrive on the Mac, the Mac's own two styles: Semantic
+    # How this PC's Ctrl and Windows keys arrive on the other PC, the other PC's own two styles: Semantic
     # makes Ctrl+C Cmd+C there, Positional keeps each key where it sits.
-    modifier_style: str = "semantic"
-    # A push against the edge with a button held is a drag, not a crossing, as on the Mac.
+    modifier_style: str = "positional"
+    # A push against the edge with a button held is a drag, not a crossing, as on the other PC.
     block_while_dragging: bool = True
-    # The Mac's address is learned, never typed: it is the peer address the
-    # Mac's own link arrives from.
+    # The other PC's address is learned, never typed: it is the peer address the
+    # other PC's own link arrives from.
     mac_host: str = ""
-    # The edge of THIS PC that leads to the Mac, which is both the way home
+    # The edge of THIS PC that leads to the other PC, which is both the way home
     # and the way out -- one border, walked either way. It can be set at
     # either machine and is synced over the link, so `arrangement_set_at`
     # (unix seconds) says how recently this end changed it and settles which
     # of two ends that disagree is the newer.
     mac_return_edge: str = ""
     arrangement_set_at: int = 0
-    # What the Mac asks for at the return edge. The PC's own push out has its
+    # What the other PC asks for at the return edge. The PC's own push out has its
     # own number, above: one slider for each direction, because the hand does
     # not feel a trackpad and a mouse the same way.
     mac_resistance_px: int = 120
-    # The Mac's hardware address, read from this PC's ARP table whenever the link comes up, so a
-    # switch that finds the Mac asleep can send it a wake-on-LAN packet. Never typed.
+    # The other PC's hardware address, read from this PC's ARP table whenever the link comes up, so a
+    # switch that finds the other PC asleep can send it a wake-on-LAN packet. Never typed.
     mac_hardware_address: str = ""
-    # Keys and buttons that stay on this PC while its input is on the Mac; see ignored.py.
+    # Keys and buttons that stay on this PC while its input is on the other PC; see ignored.py.
     ignored_inputs: list = field(default_factory=list)
     # The window's own palette: follow Windows, or keep one. tokens.APPEARANCES is the home of
     # these three values.
@@ -134,8 +134,8 @@ def migrated_port(value) -> int:
 
 
 def default_config() -> Config:
-    # `host` is the address this PC shows the Mac; pairing fills it in with the
-    # address that faces the Mac, so a fresh install carries none.
+    # `host` is the address this PC shows the other PC; pairing fills it in with the
+    # address that faces the other PC, so a fresh install carries none.
     return Config(host="", port=protocol.DEFAULT_PORT, auth_token="")
 
 
